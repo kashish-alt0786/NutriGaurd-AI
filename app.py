@@ -1,164 +1,136 @@
 import streamlit as st
-import pandas as pd
-import os
 from PIL import Image
+from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
+import torch
+import pandas as pd
 import datetime
-
-# Try Gemini import, fallback if no key
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except:
-    GEMINI_AVAILABLE = False
 
 st.set_page_config(page_title="NutriGuard AI", page_icon="🛡️", layout="centered")
 
-# --- DATA: Verified Public Databases ---
-nutrition_db = {
-    'paratha': {'carbs': 45, 'protein': 6, 'fat': 12, 'fiber': 2, 'gi': 75, 'gl': 28, 'impact': 'High', 'reason': 'High refined wheat + oil frying'},
-    'chapati': {'carbs': 15, 'protein': 3, 'fat': 1, 'fiber': 3, 'gi': 45, 'gl': 10, 'impact': 'Low', 'reason': 'Whole wheat, high fiber, steamed'},
-    'white rice bibimbap': {'carbs': 65, 'protein': 12, 'fat': 8, 'fiber': 2, 'gi': 80, 'gl': 35, 'impact': 'High', 'reason': 'High white rice content'},
-    'brown rice bibimbap': {'carbs': 50, 'protein': 13, 'fat': 6, 'fiber': 6, 'gi': 50, 'gl': 18, 'impact': 'Moderate', 'reason': 'Brown rice adds fiber, slows sugar'},
-    'kimchi': {'carbs': 2, 'protein': 1, 'fat': 0, 'fiber': 1, 'gi': 15, 'gl': 1, 'impact': 'Low', 'reason': 'Fermented, low carb'},
-    'dal': {'carbs': 20, 'protein': 7, 'fat': 1, 'fiber': 5, 'gi': 35, 'gl': 8, 'impact': 'Low', 'reason': 'High fiber + protein'},
-    'rajma': {'carbs': 40, 'protein': 9, 'fat': 2, 'fiber': 8, 'gi': 40, 'gl': 15, 'impact': 'Moderate', 'reason': 'Fiber helps but high carb'},
-    'tteokbokki': {'carbs': 80, 'protein': 4, 'fat': 3, 'fiber': 1, 'gi': 85, 'gl': 40, 'impact': 'High', 'reason': 'High refined rice cake + sugar sauce'},
-}
+# --- 1. Cached Vision Model ---
+@st.cache_resource
+def load_vision_model():
+    model_name = "nlpconnect/vit-gpt2-image-captioning"
+    model = VisionEncoderDecoderModel.from_pretrained(model_name)
+    feature_extractor = ViTImageProcessor.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    device = torch.device("cpu") # Force CPU for Streamlit Cloud
+    model.to(device)
+    return model, feature_extractor, tokenizer, device
 
-swap_db = {
-    'paratha': 'chapati',
-    'white rice bibimbap': 'brown rice bibimbap',
-    'tteokbokki': 'kimchi',
-    'rice (white)': 'brown rice bibimbap'
-}
+with st.spinner("🧠 Loading open-source Vision Engine (first run 1-2 min)..."):
+    model, feature_extractor, tokenizer, device = load_vision_model()
 
-# --- UI START ---
 st.title("🛡️ NutriGuard AI")
-st.subheader("Educational Nutrition Analysis for Diabetes Management")
-st.caption("Portfolio Arc: Project 1 found risk → Project 2 teaches daily healthy eating | Built with Python + Streamlit")
+st.caption("Educational Nutrition Analysis for Diabetes Management | Python + Streamlit + Open-Source Vision")
 
 # BOLD DISCLAIMER
-st.error("⚠️ DISCLAIMER: This is an EDUCATIONAL learning companion only. It does NOT provide medical diagnosis, insulin advice, or replace a doctor. Consult your healthcare professional. Data from USDA, ICMR-NIN, RDA Korea.")
+st.error("⚠️ EDUCATIONAL ONLY: Not a clinical tool. No insulin calculation. Does not replace medical advice. Data: USDA, ICMR-NIN, RDA Korea.")
 
-st.divider()
-st.header("📸 Step 1: Upload Your Meal")
-uploaded_file = st.file_uploader("Upload lunch, breakfast, or dinner photo", type=['jpg','png','jpeg'])
+# --- 2. Nutrition DB ---
+nutrition_db = {
+    'rice': {'carbs': 45, 'gi': 73, 'gl': 28, 'impact': 'High', 'fiber': 'Low', 'reason': 'Refined white grains'},
+    'cake': {'carbs': 80, 'gi': 85, 'gl': 40, 'impact': 'High', 'fiber': 'Low', 'reason': 'High sugar + refined flour'},
+    'chapati': {'carbs': 15, 'gi': 45, 'gl': 10, 'impact': 'Low', 'fiber': 'High', 'reason': 'Whole wheat'},
+    'kimchi': {'carbs': 2, 'gi': 15, 'gl': 1, 'impact': 'Low', 'fiber': 'High', 'reason': 'Fermented low-carb'},
+    'dal': {'carbs': 20, 'gi': 35, 'gl': 8, 'impact': 'Low', 'fiber': 'High', 'reason': 'Protein + fiber'},
+    'paratha': {'carbs': 45, 'gi': 75, 'gl': 28, 'impact': 'High', 'fiber': 'Low', 'reason': 'Oil fried + refined wheat'},
+}
 
-# Gemini Vision Logic
-detected_food = None
+# --- 3. Upload ---
+uploaded_file = st.file_uploader("📸 Upload your lunch / breakfast / dinner", type=["jpg","jpeg","png"])
+
+detected_text = ""
+selected_food = None
+
 if uploaded_file:
-    img = Image.open(uploaded_file)
-    st.image(img, width=400, caption="Your meal")
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Your Meal", width=400)
 
-    api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
+    if image.mode!= "RGB":
+        image = image.convert("RGB")
 
-    if GEMINI_AVAILABLE and api_key:
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            prompt = "Identify the Indian or Korean food in this image. Return only one name from this list: paratha, chapati, white rice bibimbap, brown rice bibimbap, kimchi, dal, rajma, tteokbokki"
-            response = model.generate_content([prompt, img])
-            detected_food = response.text.strip().lower()
-            st.success(f"Gemini Vision detected: {detected_food}")
-        except Exception as e:
-            st.warning(f"Gemini API error, using manual select: {e}")
-    else:
-        st.info("Demo Mode: Add GEMINI_API_KEY in Streamlit Secrets to enable real photo detection. Using manual select below.")
+    st.write("🧠 Local AI Vision Engine processing...")
+    pixel_values = feature_extractor(images=[image], return_tensors="pt").pixel_values.to(device)
 
-manual = st.selectbox("Or manually select food for demo:", ["-- Choose --"] + list(nutrition_db.keys()))
-if manual!= "-- Choose --":
-    detected_food = manual
-elif detected_food not in nutrition_db and detected_food:
-    # fuzzy match
-    for k in nutrition_db.keys():
-        if k in detected_food:
-            detected_food = k
+    with torch.no_grad():
+        output_ids = model.generate(pixel_values, max_length=16, num_beams=2) # beams 2 = faster
+
+    preds = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+    detected_text = preds[0].lower()
+    st.success(f"🍽 Food Recognition Output: '{detected_text}'")
+
+    # Routing to DB
+    for key in nutrition_db.keys():
+        if key in detected_text:
+            selected_food = key
             break
 
-# --- ANALYSIS ---
-if detected_food and detected_food in nutrition_db:
-    data = nutrition_db[detected_food]
+# Manual fallback (for GKS demo if model says "a plate of food")
+manual = st.selectbox("Or manually select to test Indo-Korean focus:", ["-- Choose --","paratha","chapati","white rice bibimbap (maps to rice)","brown rice bibimbap (maps to chapati)","kimchi","dal","tteokbokki (maps to cake)"])
+if manual!= "-- Choose --":
+    m = manual.split()[0] # get first word
+    if "tteokbokki" in manual: m="cake"
+    if "white" in manual: m="rice"
+    if "brown" in manual: m="chapati"
+    selected_food = m
+
+# --- 4. Glycemic Dashboard ---
+if selected_food and selected_food in nutrition_db:
+    data = nutrition_db[selected_food]
     st.divider()
-    st.header(f"🔬 Step 2: Nutritional Estimation for {detected_food.title()}")
+    st.subheader(f"📊 Educational Glycemic Estimation: {selected_food.title()}")
 
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Carbs", f"{data['carbs']}g")
-    c2.metric("Protein", f"{data['protein']}g")
-    c3.metric("Fat", f"{data['fat']}g")
-    c4.metric("Fiber", f"{data['fiber']}g")
-
-    st.header("📊 Step 3: Sugar Impact Mapping")
     c1,c2,c3 = st.columns(3)
-    c1.metric("Glycemic Index (GI)", data['gi'])
-    c2.metric("Glycemic Load (GL)", data['gl'])
+    c1.metric("GI", data['gi'])
+    c2.metric("GL", data['gl'])
     c3.metric("Impact Label", data['impact'])
 
-    # Explainable Health Feature
-    st.subheader("🧠 Why this rating?")
-    if data['impact'] == 'High':
-        st.error(f"• High refined grains\n• High total carbs ({data['carbs']}g)\n• Low fiber ({data['fiber']}g)\n• {data['reason']}")
-    elif data['impact'] == 'Moderate':
-        st.warning(f"• Moderate carbs\n• Some fiber but can be improved\n• {data['reason']}")
+    st.subheader("🧠 Explainable Health Feature")
+    if data['impact']=='High':
+        st.error(f"• Why High? {data['reason']}\n• Low dietary fiber\n• High refined carbs ({data['carbs']}g)")
     else:
-        st.success(f"• Low refined grains\n• High fiber or low carb\n• {data['reason']}")
+        st.success(f"• Why {data['impact']}? {data['reason']}\n• Balanced fiber\n• Carbs: {data['carbs']}g")
 
-    # Transparency Metrics
-    st.caption(f"Transparency: Structural reasons → Refined grains: {'High' if data['gi']>70 else 'Low'}, Carbs: {data['carbs']}g, Fiber: {data['fiber']}g")
+    st.caption(f"Transparency Metrics: Refined Grains: {data['reason']} | Carbs: {data['carbs']}g | Fiber: {data['fiber']}")
 
     # Comparison Screen
-    st.divider()
-    st.header("🔄 Step 4: Healthy Swap Comparison")
-    swap = swap_db.get(detected_food)
-    if swap and swap in nutrition_db:
-        swap_data = nutrition_db[swap]
-        df = pd.DataFrame([
-            {"Food": detected_food, "GI": data['gi'], "GL": data['gl'], "Impact": data['impact']},
-            {"Food": swap + " (Healthier)", "GI": swap_data['gi'], "GL": swap_data['gl'], "Impact": swap_data['impact']}
-        ])
+    st.subheader("🔄 Comparison: Swap to Lower-Glycemic")
+    if selected_food == "paratha":
+        df = pd.DataFrame([{"Food":"Paratha (High)","GI":75,"GL":28},{"Food":"Chapati (Low)","GI":45,"GL":10}])
         st.table(df)
-        st.info(f"🇮🇳 Example: Paratha (High) → Chapati (Low) | 🇰🇷 Example: White Rice Bibimbap (High) → Brown Rice Bibimbap (Moderate)")
-    else:
-        st.write("No direct swap needed — this is already a lower-glycemic choice!")
+        st.info("🇮🇳 Swap: Paratha → Whole-wheat Chapati")
+    elif selected_food == "rice":
+        df = pd.DataFrame([{"Food":"White Rice Bibimbap (High)","GI":73,"GL":28},{"Food":"Brown Rice Bibimbap (Mod)","GI":50,"GL":18}])
+        st.table(df)
+        st.info("🇰🇷 Swap: White Rice Bibimbap → Brown Rice Bibimbap")
 
     # Meal History Chart
     st.divider()
-    st.header("📈 Meal History (Weekly Quality Trends)")
-    if 'history' not in st.session_state:
-        st.session_state.history = []
-    if st.button("Add this meal to history"):
-        st.session_state.history.append({"date": datetime.datetime.now().strftime("%m/%d"), "food": detected_food, "gl": data['gl']})
-
+    st.subheader("📈 Meal History (Weekly Trends)")
+    if 'history' not in st.session_state: st.session_state.history=[]
+    if st.button("Add to History"):
+        st.session_state.history.append({"date": datetime.datetime.now().strftime("%m/%d"), "food": selected_food, "gl": data['gl']})
     if st.session_state.history:
         hist_df = pd.DataFrame(st.session_state.history)
         st.bar_chart(hist_df, x="date", y="gl")
-    else:
-        st.caption("No meals yet. Add meals to see your weekly Glycemic Load trend.")
 
-# --- FOOTER SECTIONS ---
 st.divider()
-st.header("📚 Educational Resources & Limitations")
-
-st.subheader("What is GI and GL?")
-st.write("GI = How fast food raises sugar. GL = GI x amount of carbs you actually eat. Lower is steadier energy.")
-
-st.subheader("Authoritative Links")
-st.markdown("- [American Diabetes Association - Food & Nutrition](https://diabetes.org/health-wellness/food-nutrition)\n- [Korean Diabetes Association Guidelines](https://www.diabetes.or.kr/english/)")
-
-st.subheader("Scientific Limitations Panel")
-st.warning("• Image clarity: Blurry photos reduce Gemini accuracy\n• Recipe variations: Home vs restaurant paratha GI differs\n• Portion estimation: This app uses standard portions, not exact weight\n• Data: Public DBs are averages, not lab-tested for your plate")
+st.subheader("📚 Learning Corner")
+st.markdown("- What is GI/GL? GI = speed, GL = amount. Lower = steadier.\n- [American Diabetes Association](https://diabetes.org/health-wellness/food-nutrition)\n- [Korean Diabetes Association](https://www.diabetes.or.kr/english/)")
 
 st.subheader("System Architecture")
 st.code("""
 [ User Uploads Meal Photo ]
           │
           ▼
-[ Gemini Vision API Engine ]
+[ Open-Source ViT-GPT2 Vision Engine ]
           │
           ▼
 [ Food Identification & Extraction ]
           │
           ▼
-[ Public Databases: USDA / ICMR-NIN / RDA ]
+[ Public DBs: USDA / ICMR-NIN / RDA ]
           │
           ▼
 [ Nutritional Analysis Block ]
@@ -167,10 +139,10 @@ st.code("""
 [ GI / GL Impact Estimation ]
           │
           ▼
-[ Comparison Dashboard & Educational Swaps ]
+[ Comparison Dashboard & Swaps ]
           │
           ▼
 [ Streamlit Meal History Graphing ]
-""", language="text")
+""")
 
-st.caption("Quality Over Quantity: Focused on 2 polished projects. No doctor logins or emergency alerts. Clean code for GKS reviewers.")
+st.caption("Scientific Limitations: Depends on image clarity, recipe variations affect GI, standard portions used.")
