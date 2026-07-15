@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.9+-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-App-red)
 ![Machine Learning](https://img.shields.io/badge/AI-Machine%20Learning-green)
-![Healthcare AI](https://img.shields.io/badge/Healthcare-Digital%20Health-purple)
+![Healthcare AI](https://img.shields.io/badge/Healthcare-AI-purple)
 
 ---
 
@@ -108,7 +108,7 @@ Explainable Health Insights
 ## Machine Learning
 
 - Scikit-learn
-- Machine Learning Concepts
+- Machine Learning Techniques
 
 ## Data Processing
 
@@ -208,8 +208,7 @@ Users should consult healthcare professionals for medical decisions.
 
 **Kashish**
 
-AI & Healthcare Technology Enthusiast
-
+High School Student | AI & Healthcare Technology Enthusiast
 Interested in:
 
 - Artificial Intelligence
