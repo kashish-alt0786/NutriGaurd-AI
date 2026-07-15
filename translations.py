@@ -44,7 +44,7 @@ TEXT = {
 
         "nutrition": "영양 분석",
 
-        "glycemic": "혈당 영향 평가",
+        "glycemic": "혈당 영향 평가", 
 
         "healthy": "건강한 대안",
 
