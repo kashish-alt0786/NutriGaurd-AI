@@ -590,7 +590,7 @@ with button1:
 with button2:
     st.link_button(
         "🌐 Live Demo",
-        "https://indo-korean-diabetes-meal-ai-ekdguqlhsxsjnhsmeszucr.streamlit.app/
+        "https://indo-korean-diabetes-meal-ai-ekdguqlhsxsjnhsmeszucr.streamlit.app/"
     )
 
 
