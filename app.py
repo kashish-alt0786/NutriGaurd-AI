@@ -591,7 +591,7 @@ with button1:
 with button2:
     st.link_button(
         "🌐 Live Demo",
-        "https://NutriGuard-AI-ekdguqlhsxsjnhsmeszucr.streamlit.app/"
+        "https://nutriguard-ai-rrzi6rnezvcba9dhtgzlrm.streamlit.app/"
     )
 
 
