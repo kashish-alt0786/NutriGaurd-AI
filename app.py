@@ -583,14 +583,14 @@ button1, button2 = st.columns(2)
 with button1:
     st.link_button(
         "💻 GitHub Repository",
-        "https://github.com/YOUR_USERNAME/NutriGuard-AI"
+        "https://github.com/"
     )
 
 
 with button2:
     st.link_button(
         "🌐 Live Demo",
-        "https://indo-korean-diabetes-meal-ai-ekdguqlhsxsjnhsmeszucr.streamlit.app/"
+        "https://indo-korean-diabetes-meal-ai-ekdguqlhsxsjnhsmeszucr.streamlit.app/
     )
 
 
